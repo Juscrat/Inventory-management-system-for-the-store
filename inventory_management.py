@@ -42,11 +42,14 @@ class InventoryManagementApp:
         filter_frame = Frame(self.main_frame)
         filter_frame.pack(pady=10, fill=X)
         Label(filter_frame, text="Фильтр по названию:").pack(side=LEFT, padx=5)
-        self.filter_name = Entry(filter_frame, width=20)
+        self.filter_name = Entry(filter_frame, width=15)
         self.filter_name.pack(side=LEFT, padx=5)
         Label(filter_frame, text="Фильтр по категории:").pack(side=LEFT, padx=5)
-        self.filter_category = Entry(filter_frame, width=20)
+        self.filter_category = Entry(filter_frame, width=15)
         self.filter_category.pack(side=LEFT, padx=5)
+        Label(filter_frame, text="Фильтр по ключевым словам:").pack(side=LEFT, padx=5)
+        self.filter_keywords = Entry(filter_frame, width=15)
+        self.filter_keywords.pack(side=LEFT, padx=5)
         Button(filter_frame, text="Применить фильтр", command=self.load_products).pack(side=LEFT, padx=5)
 
         # Кнопки действий
@@ -59,7 +62,7 @@ class InventoryManagementApp:
         # Таблица товаров
         self.product_tree = ttk.Treeview(
             self.main_frame,
-            columns=("ID", "Название", "Категория", "Артикул", "Остаток", "Закупочная цена", "Розничная цена"),
+            columns=("ID", "Название", "Категория", "Артикул", "Производитель", "Остаток", "Закупочная цена", "Розничная цена"),
             show="headings",
             height=15
         )
@@ -84,8 +87,9 @@ class InventoryManagementApp:
             # Подготовка фильтров
             name_filter = self.filter_name.get().strip()
             category_filter = self.filter_category.get().strip()
+            keywords_filter = self.filter_keywords.get().strip()
             query = '''
-                SELECT p.id, p.name, c.name AS category, p.sku, i.quantity, p.purchase_price, p.retail_price
+                SELECT p.id, p.name, c.name AS category, p.sku, p.manufacturer, i.quantity, p.purchase_price, p.retail_price
                 FROM products p
                 LEFT JOIN categories c ON p.category_id = c.id
                 LEFT JOIN inventory i ON p.id = i.product_id
@@ -98,6 +102,9 @@ class InventoryManagementApp:
             if category_filter:
                 query += " AND c.name LIKE ?"
                 params.append(f"%{category_filter}%")
+            if keywords_filter:
+                query += " AND (p.name LIKE ? OR p.sku LIKE ? OR c.name LIKE ? OR p.manufacturer LIKE ?)"
+                params.extend([f"%{keywords_filter}%"] * 4)
 
             # Выполнение запроса
             cursor.execute(query, params)
@@ -119,13 +126,16 @@ class InventoryManagementApp:
         """Окно добавления нового товара."""
         def save_new_product():
             name = name_entry.get().strip()
-            sku = sku_entry.get().strip()
+            description = description_entry.get().strip()
             category = category_var.get()
+            sku = sku_entry.get().strip()
+            manufacturer = manufacturer_entry.get().strip()
             purchase_price = purchase_price_entry.get().strip()
             retail_price = retail_price_entry.get().strip()
             min_stock = min_stock_entry.get().strip()
+            supplier = supplier_var.get()
 
-            if not all([name, sku, category, purchase_price, retail_price, min_stock]):
+            if not all([name, category, sku, manufacturer, purchase_price, retail_price, min_stock, supplier]):
                 messagebox.showerror("Ошибка", "Все поля обязательны для заполнения.")
                 return
 
@@ -140,11 +150,18 @@ class InventoryManagementApp:
                     messagebox.showerror("Ошибка", "Указанная категория не существует.")
                     return
 
+                # Получение ID поставщика
+                cursor.execute("SELECT id FROM suppliers WHERE name = ?", (supplier,))
+                supplier_id = cursor.fetchone()
+                if supplier_id is None:
+                    messagebox.showerror("Ошибка", "Указанный поставщик не существует.")
+                    return
+
                 # Вставка данных
                 cursor.execute('''
-                    INSERT INTO products (name, sku, category_id, purchase_price, retail_price, min_stock)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (name, sku, category_id[0], float(purchase_price), float(retail_price), int(min_stock)))
+                    INSERT INTO products (name, description, category_id, sku, manufacturer, purchase_price, retail_price, min_stock, supplier_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (name, description, category_id[0], sku, manufacturer, float(purchase_price), float(retail_price), int(min_stock), supplier_id[0]))
                 conn.commit()
                 conn.close()
 
@@ -157,43 +174,61 @@ class InventoryManagementApp:
         # Создание окна
         add_window = Toplevel(self.root)
         add_window.title("Добавить товар")
+
         Label(add_window, text="Название:").grid(row=0, column=0, padx=10, pady=5)
         name_entry = Entry(add_window, width=30)
         name_entry.grid(row=0, column=1, padx=10, pady=5)
 
-        Label(add_window, text="Артикул:").grid(row=1, column=0, padx=10, pady=5)
-        sku_entry = Entry(add_window, width=30)
-        sku_entry.grid(row=1, column=1, padx=10, pady=5)
+        Label(add_window, text="Описание:").grid(row=1, column=0, padx=10, pady=5)
+        description_entry = Entry(add_window, width=30)
+        description_entry.grid(row=1, column=1, padx=10, pady=5)
 
         Label(add_window, text="Категория:").grid(row=2, column=0, padx=10, pady=5)
         category_var = StringVar()
         category_dropdown = ttk.Combobox(add_window, textvariable=category_var, state="readonly")
         category_dropdown.grid(row=2, column=1, padx=10, pady=5)
 
-        # Загрузка категорий
+        Label(add_window, text="Артикул:").grid(row=3, column=0, padx=10, pady=5)
+        sku_entry = Entry(add_window, width=30)
+        sku_entry.grid(row=3, column=1, padx=10, pady=5)
+
+        Label(add_window, text="Производитель:").grid(row=4, column=0, padx=10, pady=5)
+        manufacturer_entry = Entry(add_window, width=30)
+        manufacturer_entry.grid(row=4, column=1, padx=10, pady=5)
+
+        Label(add_window, text="Закупочная цена:").grid(row=5, column=0, padx=10, pady=5)
+        purchase_price_entry = Entry(add_window, width=30)
+        purchase_price_entry.grid(row=5, column=1, padx=10, pady=5)
+
+        Label(add_window, text="Розничная цена:").grid(row=6, column=0, padx=10, pady=5)
+        retail_price_entry = Entry(add_window, width=30)
+        retail_price_entry.grid(row=6, column=1, padx=10, pady=5)
+
+        Label(add_window, text="Минимальный остаток:").grid(row=7, column=0, padx=10, pady=5)
+        min_stock_entry = Entry(add_window, width=30)
+        min_stock_entry.grid(row=7, column=1, padx=10, pady=5)
+
+        Label(add_window, text="Поставщик:").grid(row=8, column=0, padx=10, pady=5)
+        supplier_var = StringVar()
+        supplier_dropdown = ttk.Combobox(add_window, textvariable=supplier_var, state="readonly")
+        supplier_dropdown.grid(row=8, column=1, padx=10, pady=5)
+
+        # Загрузка категорий и поставщиков
         try:
             conn = sqlite3.connect("inventory_system.db")
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM categories")
             categories = [row[0] for row in cursor.fetchall()]
-            conn.close()
             category_dropdown["values"] = categories
+
+            cursor.execute("SELECT name FROM suppliers")
+            suppliers = [row[0] for row in cursor.fetchall()]
+            supplier_dropdown["values"] = suppliers
+            conn.close()
         except sqlite3.Error as e:
             messagebox.showerror("Ошибка", f"Ошибка базы данных: {e}")
 
-        Label(add_window, text="Закупочная цена:").grid(row=3, column=0, padx=10, pady=5)
-        purchase_price_entry = Entry(add_window, width=30)
-        purchase_price_entry.grid(row=3, column=1, padx=10, pady=5)
-
-        Label(add_window, text="Розничная цена:").grid(row=4, column=0, padx=10, pady=5)
-        retail_price_entry = Entry(add_window, width=30)
-        retail_price_entry.grid(row=4, column=1, padx=10, pady=5)
-
-        Label(add_window, text="Минимальный остаток:").grid(row=5, column=0, padx=10, pady=5)
-        min_stock_entry = Entry(add_window, width=30)
-        min_stock_entry.grid(row=5, column=1, padx=10, pady=5)
-
-        Button(add_window, text="Сохранить", command=save_new_product).grid(row=6, column=0, columnspan=2, pady=10)
+        Button(add_window, text="Сохранить", command=save_new_product).grid(row=9, column=0, columnspan=2, pady=10)
 
     def edit_product(self):
         """Окно редактирования товара."""
@@ -208,13 +243,16 @@ class InventoryManagementApp:
 
         def save_edited_product():
             name = name_entry.get().strip()
-            sku = sku_entry.get().strip()
+            description = description_entry.get().strip()
             category = category_var.get()
+            sku = sku_entry.get().strip()
+            manufacturer = manufacturer_entry.get().strip()
             purchase_price = purchase_price_entry.get().strip()
             retail_price = retail_price_entry.get().strip()
             min_stock = min_stock_entry.get().strip()
+            supplier = supplier_var.get()
 
-            if not all([name, sku, category, purchase_price, retail_price, min_stock]):
+            if not all([name, category, sku, manufacturer, purchase_price, retail_price, min_stock, supplier]):
                 messagebox.showerror("Ошибка", "Все поля обязательны для заполнения.")
                 return
 
@@ -229,12 +267,21 @@ class InventoryManagementApp:
                     messagebox.showerror("Ошибка", "Указанная категория не существует.")
                     return
 
+                # Получение ID поставщика
+                cursor.execute("SELECT id FROM suppliers WHERE name = ?", (supplier,))
+                supplier_id = cursor.fetchone()
+                if supplier_id is None:
+                    messagebox.showerror("Ошибка", "Указанный поставщик не существует.")
+                    return
+
                 # Обновление данных
                 cursor.execute('''
                     UPDATE products
-                    SET name = ?, sku = ?, category_id = ?, purchase_price = ?, retail_price = ?, min_stock = ?
+                    SET name = ?, description = ?, category_id = ?, sku = ?, manufacturer = ?, 
+                        purchase_price = ?, retail_price = ?, min_stock = ?, supplier_id = ?
                     WHERE id = ?
-                ''', (name, sku, category_id[0], float(purchase_price), float(retail_price), int(min_stock), product_id))
+                ''', (name, description, category_id[0], sku, manufacturer, float(purchase_price), 
+                      float(retail_price), int(min_stock), supplier_id[0], product_id))
                 conn.commit()
                 conn.close()
 
@@ -247,49 +294,70 @@ class InventoryManagementApp:
         # Создание окна
         edit_window = Toplevel(self.root)
         edit_window.title("Редактировать товар")
+
         Label(edit_window, text="Название:").grid(row=0, column=0, padx=10, pady=5)
         name_entry = Entry(edit_window, width=30)
         name_entry.insert(0, item["values"][1])
         name_entry.grid(row=0, column=1, padx=10, pady=5)
 
-        Label(edit_window, text="Артикул:").grid(row=1, column=0, padx=10, pady=5)
-        sku_entry = Entry(edit_window, width=30)
-        sku_entry.insert(0, item["values"][3])
-        sku_entry.grid(row=1, column=1, padx=10, pady=5)
+        Label(edit_window, text="Описание:").grid(row=1, column=0, padx=10, pady=5)
+        description_entry = Entry(edit_window, width=30)
+        description_entry.insert(0, "")
+        description_entry.grid(row=1, column=1, padx=10, pady=5)
 
         Label(edit_window, text="Категория:").grid(row=2, column=0, padx=10, pady=5)
         category_var = StringVar()
         category_dropdown = ttk.Combobox(edit_window, textvariable=category_var, state="readonly")
         category_dropdown.grid(row=2, column=1, padx=10, pady=5)
+        category_dropdown.set(item["values"][2])
 
-        # Загрузка категорий
+        Label(edit_window, text="Артикул:").grid(row=3, column=0, padx=10, pady=5)
+        sku_entry = Entry(edit_window, width=30)
+        sku_entry.insert(0, item["values"][3])
+        sku_entry.grid(row=3, column=1, padx=10, pady=5)
+
+        Label(edit_window, text="Производитель:").grid(row=4, column=0, padx=10, pady=5)
+        manufacturer_entry = Entry(edit_window, width=30)
+        manufacturer_entry.insert(0, item["values"][4])
+        manufacturer_entry.grid(row=4, column=1, padx=10, pady=5)
+
+        Label(edit_window, text="Закупочная цена:").grid(row=5, column=0, padx=10, pady=5)
+        purchase_price_entry = Entry(edit_window, width=30)
+        purchase_price_entry.insert(0, item["values"][6])
+        purchase_price_entry.grid(row=5, column=1, padx=10, pady=5)
+
+        Label(edit_window, text="Розничная цена:").grid(row=6, column=0, padx=10, pady=5)
+        retail_price_entry = Entry(edit_window, width=30)
+        retail_price_entry.insert(0, item["values"][7])
+        retail_price_entry.grid(row=6, column=1, padx=10, pady=5)
+
+        Label(edit_window, text="Минимальный остаток:").grid(row=7, column=0, padx=10, pady=5)
+        min_stock_entry = Entry(edit_window, width=30)
+        min_stock_entry.insert(0, "")
+        min_stock_entry.grid(row=7, column=1, padx=10, pady=5)
+
+        Label(edit_window, text="Поставщик:").grid(row=8, column=0, padx=10, pady=5)
+        supplier_var = StringVar()
+        supplier_dropdown = ttk.Combobox(edit_window, textvariable=supplier_var, state="readonly")
+        supplier_dropdown.grid(row=8, column=1, padx=10, pady=5)
+        supplier_dropdown.set("")
+
+        # Загрузка категорий и поставщиков
         try:
             conn = sqlite3.connect("inventory_system.db")
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM categories")
             categories = [row[0] for row in cursor.fetchall()]
-            conn.close()
             category_dropdown["values"] = categories
-            category_dropdown.set(item["values"][2])
+
+            cursor.execute("SELECT name FROM suppliers")
+            suppliers = [row[0] for row in cursor.fetchall()]
+            supplier_dropdown["values"] = suppliers
+            conn.close()
         except sqlite3.Error as e:
             messagebox.showerror("Ошибка", f"Ошибка базы данных: {e}")
 
-        Label(edit_window, text="Закупочная цена:").grid(row=3, column=0, padx=10, pady=5)
-        purchase_price_entry = Entry(edit_window, width=30)
-        purchase_price_entry.insert(0, item["values"][5])
-        purchase_price_entry.grid(row=3, column=1, padx=10, pady=5)
-
-        Label(edit_window, text="Розничная цена:").grid(row=4, column=0, padx=10, pady=5)
-        retail_price_entry = Entry(edit_window, width=30)
-        retail_price_entry.insert(0, item["values"][6])
-        retail_price_entry.grid(row=4, column=1, padx=10, pady=5)
-
-        Label(edit_window, text="Минимальный остаток:").grid(row=5, column=0, padx=10, pady=5)
-        min_stock_entry = Entry(edit_window, width=30)
-        min_stock_entry.insert(0, 1)  # Текущий минимальный остаток
-        min_stock_entry.grid(row=5, column=1, padx=10, pady=5)
-
-        Button(edit_window, text="Сохранить", command=save_edited_product).grid(row=6, column=0, columnspan=2, pady=10)
+        Button(edit_window, text="Сохранить", command=save_edited_product).grid(row=9, column=0, columnspan=2, pady=10)
 
     def delete_product(self):
         """Удаление товара."""
