@@ -48,7 +48,10 @@ def initialize_database():
         CREATE TABLE IF NOT EXISTS suppliers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
-            contact_info TEXT
+            contact_person TEXT,
+            phone TEXT,
+            email TEXT,
+            address TEXT
         )
     ''')
 
@@ -60,6 +63,18 @@ def initialize_database():
             date TEXT NOT NULL,
             status TEXT NOT NULL,
             FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+        )
+    ''')
+
+    # Таблица позиций в поставках
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS supply_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            supply_id INTEGER NOT NULL,
+            product_id INTEGER NOT NULL,
+            quantity INTEGER NOT NULL,
+            FOREIGN KEY (supply_id) REFERENCES supplies(id),
+            FOREIGN KEY (product_id) REFERENCES products(id)
         )
     ''')
 
